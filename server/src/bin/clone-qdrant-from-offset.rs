@@ -88,7 +88,11 @@ async fn main() -> Result<(), ()> {
                 .expect("ORIGIN_QDRANT_URL should be set")
                 .as_str(),
         ),
-        None,
+        Some(
+            std::env::var("ORIGIN_QDRANT_API_KEY")
+                .expect("ORIGIN_QDRANT_API_KEY should be set")
+                .as_str(),
+        ),
     )
     .await
     .expect("Failed to get origin qdrant connection");
@@ -99,7 +103,11 @@ async fn main() -> Result<(), ()> {
                 .expect("DEST_QDRANT_URL should be set")
                 .as_str(),
         ),
-        None,
+        Some(
+            std::env::var("DEST_QDRANT_API_KEY")
+                .expect("DEST_QDRANT_API_KEY should be set")
+                .as_str(),
+        ),
     )
     .await
     .expect("Failed to get dest qdrant connection");
