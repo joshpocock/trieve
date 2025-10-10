@@ -26,6 +26,37 @@ struct CollectionToPointids {
     point_ids: HashSet<String>,
 }
 
+async fn retry_operation<F, Fut, T, E>(
+    operation: F,
+    max_retries: u32,
+    operation_name: &str,
+) -> Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    for attempt in 1..=max_retries {
+        println!("{} (attempt {}/{})", operation_name, attempt, max_retries);
+
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                println!("Error on attempt {}: {}", attempt, e);
+                if attempt < max_retries {
+                    println!("Retrying in 2 seconds...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                } else {
+                    println!("Max retries reached");
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    unreachable!("Loop should always return");
+}
+
 #[allow(clippy::print_stdout)]
 #[tokio::main]
 async fn main() -> Result<(), ServiceError> {
@@ -71,8 +102,18 @@ async fn main() -> Result<(), ServiceError> {
         .unwrap_or(uuid::Uuid::max());
 
     let mut offset = Some(start_offset);
+    let mut batch_number = 0;
+    let mut total_chunks_processed = 0;
+    let mut total_missing_points = 0;
+
+    println!("Starting backfill from offset: {}", start_offset);
+    println!("Will stop at offset: {}", stop_offset);
+    println!("Batch size: {}", postgres_fetch_points_count);
 
     while let Some(cur_offset) = offset {
+        batch_number += 1;
+        println!("\n=== Batch {} ===", batch_number);
+        println!("Current offset: {}", cur_offset);
         use trieve_server::data::schema::chunk_group_bookmarks::dsl as chunk_group_bookmarks_columns;
         use trieve_server::data::schema::chunk_metadata::dsl as chunk_metadata_columns;
         use trieve_server::data::schema::datasets::dsl as datasets_columns;
@@ -94,7 +135,8 @@ async fn main() -> Result<(), ServiceError> {
             .await
             .expect("Failed to query chunks");
 
-        println!("Got {} ids", qdrant_dataset_id_pairs.len());
+        println!("Fetched {} chunk records from PostgreSQL", qdrant_dataset_id_pairs.len());
+        total_chunks_processed += qdrant_dataset_id_pairs.len();
 
         let chunk_ids = qdrant_dataset_id_pairs
             .iter()
@@ -103,12 +145,13 @@ async fn main() -> Result<(), ServiceError> {
 
         offset = chunk_ids.iter().max().copied().copied();
         if qdrant_dataset_id_pairs.len() < (postgres_fetch_points_count as usize) {
-            println!("setting offset to None");
+            println!("Reached end of table (batch smaller than limit)");
             offset = None;
         }
 
         if let Some(new_offset) = offset {
             if new_offset > stop_offset {
+                println!("Reached stop offset: {}", stop_offset);
                 offset = None;
             }
         }
@@ -122,7 +165,8 @@ async fn main() -> Result<(), ServiceError> {
             .load::<(uuid::Uuid, uuid::Uuid)>(&mut conn)
             .await
             .expect("Failed to query chunk groups");
-        // for each find qdrant collection name via dataset id
+
+        println!("Found {} group associations", groups_ids_to_chunk_ids.len());
 
         let dataset_id_config_pair = datasets_columns::datasets
             .filter(
@@ -137,6 +181,8 @@ async fn main() -> Result<(), ServiceError> {
             .load::<Dataset>(&mut conn)
             .await
             .expect("Failed to load dataset settings");
+
+        println!("Loaded {} unique datasets", dataset_id_config_pair.len());
 
         // Modified version that combines by collection name
         let collected_qdrant_ids: Vec<CollectionToPointids> = qdrant_dataset_id_pairs
@@ -180,21 +226,31 @@ async fn main() -> Result<(), ServiceError> {
                 collection_pairs.qdrant_collection_name,
             );
 
-            let qdrant_point_ids_response = qdrant_client
-                .get_points(GetPoints {
-                    collection_name: collection_pairs.qdrant_collection_name,
-                    ids: collection_pairs
-                        .point_ids
-                        .iter()
-                        .map(|point_uuid| PointId::from(point_uuid.as_str()))
-                        .collect(),
-                    with_payload: Some(false.into()),
-                    with_vectors: Some(false.into()),
-                    read_consistency: None,
-                    shard_key_selector: None,
-                    timeout: None,
-                })
-                .await;
+            let collection_name = collection_pairs.qdrant_collection_name.clone();
+            let point_ids: Vec<PointId> = collection_pairs
+                .point_ids
+                .iter()
+                .map(|point_uuid| PointId::from(point_uuid.as_str()))
+                .collect();
+
+            let qdrant_point_ids_response = retry_operation(
+                || async {
+                    qdrant_client
+                        .get_points(GetPoints {
+                            collection_name: collection_name.clone(),
+                            ids: point_ids.clone(),
+                            with_payload: Some(false.into()),
+                            with_vectors: Some(false.into()),
+                            read_consistency: None,
+                            shard_key_selector: None,
+                            timeout: None,
+                        })
+                        .await
+                },
+                3,
+                "Querying Qdrant for existing points",
+            )
+            .await;
 
             match qdrant_point_ids_response {
                 Ok(resp) => {
@@ -309,10 +365,14 @@ async fn main() -> Result<(), ServiceError> {
                             .map_err(|err| ServiceError::BadRequest(err.to_string()))?;
                     }
                 }
-                _ => unreachable!(),
+                Err(e) => {
+                    println!("Error querying Qdrant after retries: {}", e);
+                    println!("Skipping this collection and continuing with next batch");
+                }
             }
         }
     }
 
+    println!("Backfill complete");
     Ok(())
 }
