@@ -202,7 +202,7 @@ services:
     env_file: .env
 
   csv-jsonl-worker:
-    image: trieve/csv_jsonl_worker:latest
+    image: trieve/csv-jsonl-worker:latest
     restart: always
     depends_on:
       tika:
