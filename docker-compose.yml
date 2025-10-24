@@ -83,7 +83,6 @@ services:
 
       mc mb myminio/${S3_BUCKET};
 
-
       exit 0;
       "
 
@@ -104,10 +103,7 @@ services:
       - 9998:9998
 
   server:
-    image: trieve/server
-    build:
-      context: ./server/
-      dockerfile: Dockerfile.server
+    image: trieve/server:latest
     depends_on:
       tika:
         condition: service_healthy
@@ -174,10 +170,7 @@ services:
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
 
   ingestion-worker:
-    image: trieve/ingest
-    build:
-      context: ./server/
-      dockerfile: Dockerfile.ingestion-worker
+    image: trieve/ingest:latest
     restart: always
     depends_on:
       tika:
@@ -193,10 +186,7 @@ services:
     env_file: .env
 
   file-worker:
-    image: trieve/file_worker
-    build:
-      context: ./server/
-      dockerfile: Dockerfile.file-worker
+    image: trieve/file_worker:latest
     restart: always
     depends_on:
       tika:
@@ -212,10 +202,7 @@ services:
     env_file: .env
 
   csv-jsonl-worker:
-    image: trieve/file_worker
-    build:
-      context: ./server/
-      dockerfile: Dockerfile.csv-jsonl-worker
+    image: trieve/csv_jsonl_worker:latest
     restart: always
     depends_on:
       tika:
@@ -231,10 +218,7 @@ services:
     env_file: .env
 
   delete-worker:
-    image: trieve/delete_worker
-    build:
-      context: ./server/
-      dockerfile: Dockerfile.delete-worker
+    image: trieve/delete_worker:latest
     restart: always
     depends_on:
       tika:
@@ -250,10 +234,7 @@ services:
     env_file: .env
 
   dashboard:
-    image: trieve/dashboard
-    build:
-      context: .
-      dockerfile: ./frontends/dashboard/Dockerfile
+    image: trieve/dashboard:latest
     networks:
       - app-network
     ports:
@@ -266,10 +247,7 @@ services:
       - VITE_BM25_ACTIVE=${VITE_BM25_ACTIVE}
 
   chat:
-    image: trieve/chat
-    build:
-      context: .
-      dockerfile: ./frontends/chat/Dockerfile
+    image: trieve/chat:latest
     networks:
       - app-network
     ports:
@@ -280,10 +258,7 @@ services:
       - VITE_DASHBOARD_URL=${VITE_DASHBOARD_URL}
 
   search:
-    image: trieve/search
-    build:
-      context: .
-      dockerfile: ./frontends/search/Dockerfile
+    image: trieve/search:latest
     networks:
       - app-network
     ports:
