@@ -119,13 +119,16 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
-    network_mode: "host"
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090/api/health"]
       interval: 10s
       timeout: 5s
       retries: 10
+    ports:
+      - "8090:8090"
+    networks:
+      - app-network
     environment:
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - BASE_SERVER_URL=${BASE_SERVER_URL}
@@ -176,7 +179,6 @@ services:
       context: ./server/
       dockerfile: Dockerfile.ingestion-worker
     restart: always
-    network_mode: "host"
     depends_on:
       tika:
         condition: service_healthy
@@ -186,6 +188,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+    networks:
+      - app-network
     env_file: .env
 
   file-worker:
@@ -194,7 +198,6 @@ services:
       context: ./server/
       dockerfile: Dockerfile.file-worker
     restart: always
-    network_mode: "host"
     depends_on:
       tika:
         condition: service_healthy
@@ -204,6 +207,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+    networks:
+      - app-network
     env_file: .env
 
   csv-jsonl-worker:
@@ -212,7 +217,6 @@ services:
       context: ./server/
       dockerfile: Dockerfile.csv-jsonl-worker
     restart: always
-    network_mode: "host"
     depends_on:
       tika:
         condition: service_healthy
@@ -222,6 +226,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+    networks:
+      - app-network
     env_file: .env
 
   delete-worker:
@@ -230,7 +236,6 @@ services:
       context: ./server/
       dockerfile: Dockerfile.delete-worker
     restart: always
-    network_mode: "host"
     depends_on:
       tika:
         condition: service_healthy
@@ -240,13 +245,15 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+    networks:
+      - app-network
     env_file: .env
 
   dashboard:
     image: trieve/dashboard
     build:
-      context: ./frontends
-      dockerfile: ./dashboard/Dockerfile
+      context: .
+      dockerfile: ./frontends/dashboard/Dockerfile
     networks:
       - app-network
     ports:
@@ -261,8 +268,8 @@ services:
   chat:
     image: trieve/chat
     build:
-      context: ./frontends
-      dockerfile: ./chat/Dockerfile
+      context: .
+      dockerfile: ./frontends/chat/Dockerfile
     networks:
       - app-network
     ports:
@@ -275,8 +282,8 @@ services:
   search:
     image: trieve/search
     build:
-      context: ./frontends
-      dockerfile: ./search/Dockerfile
+      context: .
+      dockerfile: ./frontends/search/Dockerfile
     networks:
       - app-network
     ports:
@@ -309,7 +316,7 @@ services:
         ]
       interval: 10s
       timeout: 5s
-      retries: 20 # Account for keycloak db starting up and taking time.
+      retries: 20
     entrypoint: "/opt/keycloak/bin/kc.sh start-dev --import-realm --spi-theme-static-max-age=-1 --spi-theme-cache-themes=false --spi-theme-cache-templates=false"
     volumes:
       - keycloak-data:/opt/keycloak/data
